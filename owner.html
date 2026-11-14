@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tasty Bites · Owner</title>
+<style>
+*{box-sizing:border-box}
+:root{--bg:#151a16;--card:#1e251f;--ink:#ece9df;--muted:#a3a698;--line:#323b33;--gold:#d4a95f;--green:#3f9b6a}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+button,input{font:inherit}
+header{background:#0f2a1d;padding:16px 18px;display:flex;justify-content:space-between;align-items:center}
+.brand{font:bold 22px Georgia,serif}.brand span{color:var(--gold)}
+main{max-width:760px;margin:auto;padding:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
+input{width:100%;padding:13px;border:1px solid var(--line);border-radius:8px;background:#252d26;color:var(--ink);margin:6px 0 12px}
+.btn{background:var(--gold);color:#1c291e;border:0;border-radius:30px;padding:11px 18px;font-weight:bold;cursor:pointer}
+.ghost{background:none;border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:30px;padding:8px 14px;cursor:pointer}
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+.tab{flex:1;background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:30px;padding:10px;font-weight:bold;cursor:pointer}
+.tab.on{background:var(--gold);color:#1c291e;border-color:var(--gold)}
+.top{display:flex;justify-content:space-between;gap:10px}
+.muted{color:var(--muted);font-size:13px;line-height:1.6}
+.stat{display:inline-block;background:var(--gold);color:#1c291e;font-size:11px;font-weight:bold;border-radius:20px;padding:4px 10px;margin-right:8px}
+.row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:10px}
+.mrow{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.mrow input{width:78px;margin:0;padding:8px}
+.mrow label{display:flex;gap:6px;align-items:center;font-size:13px}.mrow input[type=checkbox]{width:18px}
+.err{color:#e08a78;font-size:13px}
+</style></head><body>
+<header><div class="brand">Tasty <span>Bites</span> · Owner</div><button class="ghost" id="out" style="display:none" onclick="SB.auth.signOut()">Log out</button></header>
+<main id="app"></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
+<script>
+if(!window.supabase){document.getElementById("app").innerHTML='<div class="card">Could not load the login library. Check your internet and refresh.</div>';throw new Error("no lib")}
+const SB=supabase.createClient("https://xweukbcqzopwtbnrjccv.supabase.co","sb_publishable_w4jkfmyicc-rCZdZE7BjoQ_7q_hyb7B");
+const app=document.getElementById("app"),cash=n=>"GH₵"+Number(n||0).toFixed(2);
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const STEPS={Delivery:["new","preparing","out for delivery","delivered"],Pickup:["new","preparing","ready for pickup","delivered"]};
+let tab="orders",orders=[],menu=[],ch=null;
+SB.auth.onAuthStateChange((e,s)=>{if(s){document.getElementById("out").style.display="";start()}else{document.getElementById("out").style.display="none";login()}});
+function login(msg){
+ app.innerHTML=`<div class="card"><h2>Owner login</h2><div class="muted">Only the restaurant owner can log in.</div>
+ <input id="em" type="email" placeholder="Email" autocomplete="username"><input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+ <div class="err">${esc(msg||"")}</div><button class="btn" onclick="doLogin()">LOG IN</button></div>`;
+}
+async function doLogin(){
+ const r=await SB.auth.signInWithPassword({email:document.getElementById("em").value.trim(),password:document.getElementById("pw").value});
+ if(r.error)login("Supabase says: "+r.error.message);
+}
+async function load(){
+ const a=await SB.from("orders").select("*").order("created_at",{ascending:false}),b=await SB.from("menu_items").select("*").order("name");
+ orders=a.data||[];menu=b.data||[];render();
+}
+function start(){
+ load();
+ if(!ch)ch=SB.channel("owner").on("postgres_changes",{event:"*",schema:"public",table:"orders"},load).on("postgres_changes",{event:"*",schema:"public",table:"menu_items"},load).subscribe();
+}
+async function setStatus(id,st){const r=await SB.from("orders").update({status:st}).eq("id",id);if(r.error)alert("Could not update this order.")}
+async function saveMenu(id){
+ const r=await SB.from("menu_items").update({price:Number(document.getElementById("p-"+id).value)||0,cost:Number(document.getElementById("c-"+id).value)||0,in_stock:document.getElementById("s-"+id).checked}).eq("id",id);
+ if(r.error)alert("Could not save.");
+}
+function setTab(t){tab=t;render()}
+function card(o){
+ const st=STEPS[o.method]||STEPS.Pickup,nx=st[st.indexOf(o.status)+1],items=o.items||[];
+ return `<div class="card"><div class="top"><strong>${esc(o.customer_name)} · ${esc(o.method)}</strong><strong>${cash(o.total)}</strong></div>
+ <div class="muted">${items.map(x=>x.qty+"× "+esc(x.name)+(x.opt?" ("+esc(x.opt)+")":"")).join("<br>")}<br>${esc(o.phone)}${o.address?" · "+esc(o.address):""}${o.notes?"<br>Note: "+esc(o.notes):""}<br>${new Date(o.created_at).toLocaleString()}</div>
+ <p><span class="stat">${esc(o.status.toUpperCase())}</span>${nx?`<button class="btn" onclick="setStatus('${esc(o.id)}','${nx}')">MARK ${nx.toUpperCase()}</button>`:""}</p></div>`;
+}
+function costOf(os){const c={};menu.forEach(m=>c[m.name]=Number(m.cost)||0);return os.reduce((s,o)=>s+(o.items||[]).reduce((t,x)=>t+x.qty*(c[x.name]||0),0),0)}
+function chart(del){
+ const rows=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);
+  const os=del.filter(o=>new Date(o.created_at).toDateString()===d.toDateString()),rev=os.reduce((s,o)=>s+Number(o.total),0);
+  return{l:d.toLocaleDateString("en",{weekday:"short"}),rev:rev,pro:rev-costOf(os)}}),mx=Math.max(1,...rows.map(r=>r.rev));
+ const bars=rows.map((r,i)=>{const x=14+i*44,a=r.rev/mx*110,b=Math.max(0,r.pro)/mx*110;
+  return `<rect x="${x}" y="${130-a}" width="16" height="${a}" rx="3" fill="#c69b52"/><rect x="${x+18}" y="${130-b}" width="16" height="${b}" rx="3" fill="#3f9b6a"/><text x="${x+17}" y="147" text-anchor="middle" font-size="10" fill="#a3a698">${r.l}</text>`}).join("");
+ return `<svg viewBox="0 0 320 154" style="width:100%">${bars}</svg><div class="muted"><span style="color:#c69b52">■</span> Money received &nbsp; <span style="color:#3f9b6a">■</span> Estimated profit (set each dish cost in the Menu tab)</div>`;
+}
+function render(){
+ let body="";
+ if(tab==="orders")body=orders.length?orders.map(card).join(""):`<div class="card muted">No orders yet.</div>`;
+ if(tab==="menu")body=`<div class="card">`+menu.map(m=>`<div class="mrow"><strong>${esc(m.name)}</strong><span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Price <input type="number" min="0" id="p-${m.id}" value="${m.price}" onchange="saveMenu('${m.id}')"> Cost <input type="number" min="0" id="c-${m.id}" value="${m.cost}" onchange="saveMenu('${m.id}')"><label><input type="checkbox" id="s-${m.id}" ${m.in_stock?"checked":""} onchange="saveMenu('${m.id}')">In stock</label></span></div>`).join("")+`</div>`;
+ if(tab==="money"){
+  const sum=a=>a.reduce((s,o)=>s+Number(o.total),0),day=new Date().toDateString(),del=orders.filter(o=>o.status==="delivered"),pend=orders.filter(o=>o.status!=="delivered"),cnt={};
+  orders.forEach(o=>(o.items||[]).forEach(x=>cnt[x.name]=(cnt[x.name]||0)+x.qty));
+  const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  body=`<div class="card"><div class="row"><span>Received today</span><strong>${cash(sum(del.filter(o=>new Date(o.created_at).toDateString()===day)))}</strong></div>
+  <div class="row"><span>Received all time</span><strong>${cash(sum(del))}</strong></div>
+  <div class="row"><span>Estimated profit (all time)</span><strong>${cash(sum(del)-costOf(del))}</strong></div>
+  <div class="row"><span>Pending (not yet delivered)</span><strong>${cash(sum(pend))}</strong></div>
+  <div class="row"><span>Orders · delivery orders</span><strong>${orders.length} · ${orders.filter(o=>o.method==="Delivery").length}</strong></div></div>
+  <div class="card"><strong>Last 7 days</strong>${chart(del)}</div>
+  <div class="card"><strong>Best sellers</strong>${top.length?top.map(t=>`<div class="row"><span>${esc(t[0])}</span><strong>${t[1]} sold</strong></div>`).join(""):`<div class="muted">No sales yet.</div>`}</div>`;
+ }
+ app.innerHTML=`<div class="tabs">${["orders","menu","money"].map(t=>`<button class="tab${t===tab?" on":""}" onclick="setTab('${t}')">${t[0].toUpperCase()+t.slice(1)}</button>`).join("")}</div>`+body;
+}
+</script></body></html>
